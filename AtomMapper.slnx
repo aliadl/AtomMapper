@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="MapperTest/MapperTest.csproj" />
+  <Project Path="AtomMapper/AtomMapper.csproj" />
+  <Project Path="MapperBenchmark/MapperBenchmark.csproj" />
+</Solution>
