@@ -8,7 +8,7 @@
 
 		<!-- Package metadata -->
 		<PackageId>AtomMapper</PackageId>
-		<Version>1.2.0</Version>
+		<Version>1.2.1</Version>
 		<Authors>Ali</Authors>
 		<Description>A high-performance, lightweight object mapper for .NET. Builds compiled expression trees at startup for near-native mapping speed with zero runtime overhead per call.</Description>
 		<PackageTags>mapper;mapping;object-mapper;dto;expression-tree;automapper</PackageTags>

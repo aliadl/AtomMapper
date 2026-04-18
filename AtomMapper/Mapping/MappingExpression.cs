@@ -153,13 +153,19 @@ public sealed class MappingExpression<TSource, TDestination>
             var mapperRead = Expression.Field(null, cacheField);
             var selectCall = Expression.Call(selectMethod, srcAccess, mapperRead);
             var converted = BuildCollectionConversion(selectCall, destProp.PropertyType, destElem);
+            // Expression.Condition requires both branches to share the same type.
+            // BuildCollectionConversion may return e.g. List<T> for an ICollection<T> destination,
+            // so coerce to destProp.PropertyType when they differ.
+            Expression falseExpr = converted.Type != destProp.PropertyType
+                ? Expression.Convert(converted, destProp.PropertyType)
+                : converted;
             // Skip if source is null OR no element mapping is registered.
             var guard = Expression.Condition(
                 Expression.OrElse(
                     Expression.Equal(srcAccess, Expression.Constant(null, srcProp.PropertyType)),
                     Expression.Equal(mapperRead, Expression.Constant(null, mapperRead.Type))),
                 Expression.Default(destProp.PropertyType),
-                converted);
+                falseExpr);
 
             list.Add(Expression.Assign(Expression.Property(destParam, destProp), guard));
         }
