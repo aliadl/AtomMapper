@@ -16,9 +16,15 @@ public sealed class MappingExpressionRegistry
     /// <summary>
     /// Registers a mapping from <typeparamref name="TSource"/> to <typeparamref name="TDestination"/>.
     /// Returns a fluent <see cref="MappingExpression{TSource,TDestination}"/> for further configuration.
+    /// <para>
+    /// If <typeparamref name="TDestination"/> has a parameterless constructor it is used directly.
+    /// Otherwise the public constructor with the most parameters is used, and its parameters are
+    /// resolved by name from the source, custom <c>ForMember</c> rules, or their declared defaults.
+    /// In-place update mapping (<see cref="IMapper.Map{TSource,TDestination}(TSource,TDestination)"/>)
+    /// is only supported for types that have a parameterless constructor.
+    /// </para>
     /// </summary>
     public MappingExpression<TSource, TDestination> CreateMap<TSource, TDestination>()
-        where TDestination : new()
     {
         var expression = new MappingExpression<TSource, TDestination>();
         _pending.Add(() => StoreMapping<TSource, TDestination>(expression.Build()));
@@ -32,7 +38,6 @@ public sealed class MappingExpressionRegistry
     }
 
     private static void StoreMapping<TSource, TDestination>(CompiledMapping<TSource, TDestination> compiled)
-        where TDestination : new()
     {
         MappingCache<TSource, TDestination>.Create = compiled.Create;
         MappingCache<TSource, TDestination>.Update = compiled.Update;
@@ -45,7 +50,6 @@ public sealed class MappingExpressionRegistry
     }
 
     private static void StoreReverseMapping<TSource, TDestination>()
-        where TDestination : new()
     {
         // Convention-only reverse — custom ForMember rules are not reversed automatically.
         var compiled = new MappingExpression<TDestination, TSource>().Build();

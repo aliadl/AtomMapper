@@ -60,29 +60,97 @@ public sealed class MappingExpression<TSource, TDestination>
         var srcParam = Expression.Parameter(typeof(TSource), "src");
         var destParam = Expression.Parameter(typeof(TDestination), "dest");
 
-        var assignments = BuildAssignments(srcParam, destParam);
-
-        // Action — used for in-place / update mapping
-        Action<TSource, TDestination> update = assignments.Count == 0
-            ? static (_, _) => { }
-            : Expression.Lambda<Action<TSource, TDestination>>(
-                Expression.Block(assignments), srcParam, destParam).Compile();
-
-        // Func — allocates TDestination and runs all assignments in one compiled call
-        var destVar = Expression.Variable(typeof(TDestination), "dest");
-        var createBody = new List<Expression>(assignments.Count + 2)
+        if (typeof(TDestination).GetConstructor(Type.EmptyTypes) is not null)
         {
-            Expression.Assign(destVar, Expression.New(typeof(TDestination)))
-        };
-        var replacer = new ParameterReplacer(destParam, destVar);
-        foreach (var a in assignments)
-            createBody.Add(replacer.Visit(a)!);
-        createBody.Add(destVar);
+            // Parameterless constructor — allocate then apply property assignments.
+            var assignments = BuildAssignments(srcParam, destParam);
 
-        var create = Expression.Lambda<Func<TSource, TDestination>>(
-            Expression.Block([destVar], createBody), srcParam).Compile();
+            Action<TSource, TDestination> update = assignments.Count == 0
+                ? static (_, _) => { }
+                : Expression.Lambda<Action<TSource, TDestination>>(
+                    Expression.Block(assignments), srcParam, destParam).Compile();
 
-        return new CompiledMapping<TSource, TDestination>(create, update, _reverseMap);
+            var destVar = Expression.Variable(typeof(TDestination), "dest");
+            var createBody = new List<Expression>(assignments.Count + 2)
+            {
+                Expression.Assign(destVar, Expression.New(typeof(TDestination)))
+            };
+            var replacer = new ParameterReplacer(destParam, destVar);
+            foreach (var a in assignments)
+                createBody.Add(replacer.Visit(a)!);
+            createBody.Add(destVar);
+
+            var create = Expression.Lambda<Func<TSource, TDestination>>(
+                Expression.Block([destVar], createBody), srcParam).Compile();
+
+            return new CompiledMapping<TSource, TDestination>(create, update, _reverseMap);
+        }
+        else
+        {
+            // No parameterless constructor — delegate to the primary (longest) public constructor.
+            // In-place update is not supported for constructor-bound types.
+            var ctor = FindPrimaryConstructor(typeof(TDestination));
+            var ctorExpr = BuildConstructorExpression(ctor, srcParam, destParam);
+            var create = Expression.Lambda<Func<TSource, TDestination>>(ctorExpr, srcParam).Compile();
+            return new CompiledMapping<TSource, TDestination>(create, null, _reverseMap);
+        }
+    }
+
+    private static ConstructorInfo FindPrimaryConstructor(Type type)
+    {
+        var ctors = type.GetConstructors();
+        if (ctors.Length == 0)
+            throw new InvalidOperationException(
+                $"Type '{type.Name}' has no public constructor. " +
+                "Destination types must have either a parameterless constructor or a public primary constructor.");
+        return ctors.MaxBy(c => c.GetParameters().Length)!;
+    }
+
+    // Builds Expression.New(ctor, ...) by resolving each parameter via:
+    //   1. ForMember factory (matched case-insensitively to the property name)
+    //   2. Source property convention (same name, assignable type)
+    //   3. Constructor parameter's declared default value
+    //   4. Expression.Default (null / 0)
+    private Expression BuildConstructorExpression(
+        ConstructorInfo ctor,
+        ParameterExpression srcParam,
+        ParameterExpression destParam)
+    {
+        var srcType = typeof(TSource);
+        var memberFactories = _memberMappings.ToDictionary(
+            m => m.DestProp.Name,
+            m => m.Factory,
+            StringComparer.OrdinalIgnoreCase);
+
+        var args = new List<Expression>(ctor.GetParameters().Length);
+        foreach (var param in ctor.GetParameters())
+        {
+            var name = param.Name!;
+            var ignored = _ignoredMembers.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase));
+
+            if (!ignored && memberFactories.TryGetValue(name, out var factory))
+            {
+                args.Add(factory(srcParam, destParam));
+                continue;
+            }
+
+            if (!ignored)
+            {
+                var srcProp = srcType.GetProperty(name,
+                    BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
+                if (srcProp is not null && param.ParameterType.IsAssignableFrom(srcProp.PropertyType))
+                {
+                    args.Add(Expression.Property(srcParam, srcProp));
+                    continue;
+                }
+            }
+
+            args.Add(param.HasDefaultValue
+                ? Expression.Constant(param.DefaultValue, param.ParameterType)
+                : Expression.Default(param.ParameterType));
+        }
+
+        return Expression.New(ctor, args);
     }
 
     private List<Expression> BuildAssignments(

@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dotnet build *)"
+      "Bash(dotnet build *)",
+      "Bash(Get-ChildItem -Path \"D:\\\\Projects\\\\Misc\\\\AtomMapper\" -Recurse -Directory)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Sort-Object)",
+      "Bash(Select-String -Pattern \"error|warning CS8625\")"
     ]
   }
 }
