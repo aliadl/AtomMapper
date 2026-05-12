@@ -9,21 +9,23 @@ namespace AtomMapper;
 /// </summary>
 public sealed class MappingExpression<TSource, TDestination>
 {
-    private readonly List<(PropertyInfo DestProp, LambdaExpression MapFrom)> _mapExpressions = [];
+    private readonly List<(PropertyInfo DestProp, Func<ParameterExpression, ParameterExpression, Expression> Factory)>
+        _memberMappings = [];
     private readonly HashSet<string> _ignoredMembers = [];
     private readonly HashSet<string> _mappedMembers = [];
     private bool _reverseMap;
 
     /// <summary>
     /// Configures how a specific destination member is mapped.
-    /// Use <see cref="MemberOptions{TSource,TMember}.MapFrom"/> or <see cref="MemberOptions{TSource,TMember}.Ignore"/>.
+    /// Use <see cref="MemberOptions{TSource,TDestination,TMember}.MapFrom(Expression{Func{TSource,TMember}})"/>,
+    /// one of its overloads, or <see cref="MemberOptions{TSource,TDestination,TMember}.Ignore"/>.
     /// </summary>
     public MappingExpression<TSource, TDestination> ForMember<TMember>(
         Expression<Func<TDestination, TMember>> destMember,
-        Action<MemberOptions<TSource, TMember>> configure)
+        Action<MemberOptions<TSource, TDestination, TMember>> configure)
     {
         var memberName = GetMemberName(destMember);
-        var options = new MemberOptions<TSource, TMember>();
+        var options = new MemberOptions<TSource, TDestination, TMember>();
         configure(options);
 
         if (options.IsIgnored)
@@ -32,12 +34,12 @@ public sealed class MappingExpression<TSource, TDestination>
             return this;
         }
 
-        if (options.MapFromExpression is not null)
+        if (options.ExpressionFactory is not null)
         {
             _mappedMembers.Add(memberName);
             var destProp = typeof(TDestination).GetProperty(memberName,
                 BindingFlags.Public | BindingFlags.Instance)!;
-            _mapExpressions.Add((destProp, options.MapFromExpression));
+            _memberMappings.Add((destProp, options.ExpressionFactory));
         }
 
         return this;
@@ -63,7 +65,7 @@ public sealed class MappingExpression<TSource, TDestination>
         // Action — used for in-place / update mapping
         Action<TSource, TDestination> update = assignments.Count == 0
             ? static (_, _) => { }
-        : Expression.Lambda<Action<TSource, TDestination>>(
+            : Expression.Lambda<Action<TSource, TDestination>>(
                 Expression.Block(assignments), srcParam, destParam).Compile();
 
         // Func — allocates TDestination and runs all assignments in one compiled call
@@ -170,11 +172,11 @@ public sealed class MappingExpression<TSource, TDestination>
             list.Add(Expression.Assign(Expression.Property(destParam, destProp), guard));
         }
 
-        // AtomMapper ForMember expressions — inlined directly into the compiled lambda
-        foreach (var (destProp, mapFrom) in _mapExpressions)
+        // ForMember expressions — call each factory with the current src/dest parameters
+        foreach (var (destProp, factory) in _memberMappings)
         {
-            var inlined = new ParameterReplacer(mapFrom.Parameters[0], srcParam).Visit(mapFrom.Body)!;
-            list.Add(Expression.Assign(Expression.Property(destParam, destProp), inlined));
+            var rhs = factory(srcParam, destParam);
+            list.Add(Expression.Assign(Expression.Property(destParam, destProp), rhs));
         }
 
         return list;
@@ -220,10 +222,4 @@ public sealed class MappingExpression<TSource, TDestination>
         => expr.Body is MemberExpression m
             ? m.Member.Name
             : throw new ArgumentException("Expression must be a member access.", nameof(expr));
-}
-
-file sealed class ParameterReplacer(ParameterExpression target, Expression replacement) : ExpressionVisitor
-{
-    protected override Expression VisitParameter(ParameterExpression node)
-        => node == target ? replacement : base.VisitParameter(node);
 }
