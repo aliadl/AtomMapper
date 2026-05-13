@@ -47,3 +47,11 @@ public class PurchaseCostPlanMappingProfile : IMapperProfile
             .ForMember(m => m.ServiceType, c => c.Ignore());
     }
 }
+
+public class NullableMappingProfile : IMapperProfile
+{
+    public void Register(MappingExpressionRegistry registry)
+    {
+        registry.CreateMap<NullableSource, NullableDest>();
+    }
+}

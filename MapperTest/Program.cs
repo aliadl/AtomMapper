@@ -126,3 +126,18 @@ var dtos = mapper.Map<IEnumerable<Entry>, IEnumerable<TransactionEntryDto>>(entr
 
 foreach (var dto in dtos)
     Console.WriteLine($"  [{dto.Id}] {dto.CurrencyCode} | Debit: {dto.DebitAmount,7} | Credit: {dto.CreditAmount,7}");
+
+// ── Sample 6: Nullable tolerance ─────────────────────────────────────────────
+
+Console.WriteLine("\n=== NullableSource → NullableDest ===");
+
+var nullableSrc1 = new NullableSource { NullableToNonNull = null, NonNullToNullable = 42 };
+var nullableSrc2 = new NullableSource { NullableToNonNull = 7,    NonNullToNullable = 0  };
+
+var nullableDst1 = mapper.Map<NullableSource, NullableDest>(nullableSrc1);
+var nullableDst2 = mapper.Map<NullableSource, NullableDest>(nullableSrc2);
+
+Console.WriteLine($"  null  → int : {nullableDst1.NullableToNonNull}  (expected 0)");
+Console.WriteLine($"  int   → int?: {nullableDst1.NonNullToNullable}  (expected 42)");
+Console.WriteLine($"  7     → int : {nullableDst2.NullableToNonNull}  (expected 7)");
+Console.WriteLine($"  0     → int?: {nullableDst2.NonNullToNullable}  (expected 0)");

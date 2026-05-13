@@ -98,3 +98,17 @@ public class PurchaseServiceCost
     public decimal Amount { get; set; }
     public string ServiceType { get; set; } = default!; // ignored in mapping
 }
+
+// ── Nullable tolerance ────────────────────────────────────────────────────────
+
+public class NullableSource
+{
+    public int? NullableToNonNull { get; set; }   // T? → T
+    public int NonNullToNullable { get; set; }    // T  → T?
+}
+
+public class NullableDest
+{
+    public int NullableToNonNull { get; set; }    // receives T? source
+    public int? NonNullToNullable { get; set; }   // receives T source
+}

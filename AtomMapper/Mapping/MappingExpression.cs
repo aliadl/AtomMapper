@@ -138,10 +138,33 @@ public sealed class MappingExpression<TSource, TDestination>
             {
                 var srcProp = srcType.GetProperty(name,
                     BindingFlags.Public | BindingFlags.Instance | BindingFlags.IgnoreCase);
-                if (srcProp is not null && param.ParameterType.IsAssignableFrom(srcProp.PropertyType))
+                if (srcProp is not null)
                 {
-                    args.Add(Expression.Property(srcParam, srcProp));
-                    continue;
+                    var ctorSrcUnderlying  = Nullable.GetUnderlyingType(srcProp.PropertyType);
+                    var ctorDestUnderlying = Nullable.GetUnderlyingType(param.ParameterType);
+
+                    // T? → T: unwrap; null becomes default(T)
+                    if (ctorSrcUnderlying is not null && ctorSrcUnderlying == param.ParameterType)
+                    {
+                        var getValueOrDefault = srcProp.PropertyType
+                            .GetMethod(nameof(Nullable<int>.GetValueOrDefault), Type.EmptyTypes)!;
+                        args.Add(Expression.Call(Expression.Property(srcParam, srcProp), getValueOrDefault));
+                        continue;
+                    }
+
+                    // T → T?: wrap via the Nullable<T>(T) constructor
+                    if (ctorDestUnderlying is not null && ctorDestUnderlying == srcProp.PropertyType)
+                    {
+                        var nullableCtor = param.ParameterType.GetConstructor([srcProp.PropertyType])!;
+                        args.Add(Expression.New(nullableCtor, Expression.Property(srcParam, srcProp)));
+                        continue;
+                    }
+
+                    if (param.ParameterType.IsAssignableFrom(srcProp.PropertyType))
+                    {
+                        args.Add(Expression.Property(srcParam, srcProp));
+                        continue;
+                    }
                 }
             }
 
@@ -170,7 +193,33 @@ public sealed class MappingExpression<TSource, TDestination>
             var srcProp = srcType.GetProperty(destProp.Name, BindingFlags.Public | BindingFlags.Instance);
             if (srcProp is null) continue;
 
-            // 1. Direct assignment — types are compatible
+            // 1. Nullable compatibility checked first — CLR's IsAssignableFrom returns true for
+            //    T → Nullable<T> but Expression.Assign does not honour that special case.
+            var srcUnderlying  = Nullable.GetUnderlyingType(srcProp.PropertyType);
+            var destUnderlying = Nullable.GetUnderlyingType(destProp.PropertyType);
+
+            // 1a. T? → T: unwrap; null source becomes default(T)
+            if (srcUnderlying is not null && srcUnderlying == destProp.PropertyType)
+            {
+                var getValueOrDefault = srcProp.PropertyType
+                    .GetMethod(nameof(Nullable<int>.GetValueOrDefault), Type.EmptyTypes)!;
+                list.Add(Expression.Assign(
+                    Expression.Property(destParam, destProp),
+                    Expression.Call(Expression.Property(srcParam, srcProp), getValueOrDefault)));
+                continue;
+            }
+
+            // 1b. T → T?: wrap via the Nullable<T>(T) constructor
+            if (destUnderlying is not null && destUnderlying == srcProp.PropertyType)
+            {
+                var nullableCtor = destProp.PropertyType.GetConstructor([srcProp.PropertyType])!;
+                list.Add(Expression.Assign(
+                    Expression.Property(destParam, destProp),
+                    Expression.New(nullableCtor, Expression.Property(srcParam, srcProp))));
+                continue;
+            }
+
+            // 1c. Direct assignment — types are compatible
             if (destProp.PropertyType.IsAssignableFrom(srcProp.PropertyType))
             {
                 list.Add(Expression.Assign(
