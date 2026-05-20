@@ -60,9 +60,10 @@ public sealed class MappingExpression<TSource, TDestination>
         var srcParam = Expression.Parameter(typeof(TSource), "src");
         var destParam = Expression.Parameter(typeof(TDestination), "dest");
 
-        if (typeof(TDestination).GetConstructor(Type.EmptyTypes) is not null)
+        if (typeof(TDestination).IsValueType || typeof(TDestination).GetConstructor(Type.EmptyTypes) is not null)
         {
-            // Parameterless constructor — allocate then apply property assignments.
+            // Parameterless constructor (or value type, which supports Expression.New with no ctor) —
+            // allocate then apply property assignments.
             var assignments = BuildAssignments(srcParam, destParam);
 
             Action<TSource, TDestination> update = assignments.Count == 0
@@ -169,11 +170,30 @@ public sealed class MappingExpression<TSource, TDestination>
             }
 
             args.Add(param.HasDefaultValue
-                ? Expression.Constant(param.DefaultValue, param.ParameterType)
+                ? MakeDefaultConstant(param.DefaultValue, param.ParameterType)
                 : Expression.Default(param.ParameterType));
         }
 
         return Expression.New(ctor, args);
+    }
+
+    // Expression.Constant requires value.GetType() == type exactly.
+    // Two reflection quirks need fixing:
+    //   1. Nullable<T> params: DefaultValue is returned as T, not Nullable<T>.
+    //   2. Struct params with = default: DefaultValue is null, but structs can't be null constants.
+    private static Expression MakeDefaultConstant(object? value, Type type)
+    {
+        if (value is null && type.IsValueType && Nullable.GetUnderlyingType(type) is null)
+            return Expression.Default(type);
+
+        if (value is not null
+            && Nullable.GetUnderlyingType(type) is { } underlying
+            && value.GetType() == underlying)
+        {
+            return Expression.Convert(Expression.Constant(value, underlying), type);
+        }
+
+        return Expression.Constant(value, type);
     }
 
     private List<Expression> BuildAssignments(

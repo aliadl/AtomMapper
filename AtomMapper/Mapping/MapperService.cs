@@ -6,7 +6,7 @@ internal sealed class MapperService : IMapper
         => MappingExpressionRegistry.Resolve<TSource, TDestination>()(source);
 
     public TDestination Map<TDestination>(object source)
-        => (TDestination)MappingExpressionRegistry.ResolveRuntime(source.GetType(), typeof(TDestination))(source);
+        => source is null ? default! : (TDestination)MappingExpressionRegistry.ResolveRuntime(source.GetType(), typeof(TDestination))(source);
 
     public TDestination Map<TSource, TDestination>(TSource source, TDestination destination)
     {
